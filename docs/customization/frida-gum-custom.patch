@@ -1,0 +1,309 @@
+From bf9ae7e72f17788bdadd4bdd94afc7e05d26bceb Mon Sep 17 00:00:00 2001
+From: "Phase49.1-main-agent" <hugoxue@auto.ai>
+Date: Sun, 30 Aug 2026 10:53:05 +0800
+Subject: [PATCH] =?UTF-8?q?feat:=20=E7=89=B9=E5=BE=81=E5=AD=97=E7=AC=A6?=
+ =?UTF-8?q?=E4=B8=B2=E6=9B=BF=E6=8D=A2=20=E2=80=94=20=E6=B6=88=E9=99=A4?=
+ =?UTF-8?q?=E5=8A=A0=E5=9B=BA=E5=A3=B3=E5=8F=AF=E6=A3=80=E6=B5=8B=E7=9A=84?=
+ =?UTF-8?q?=20Frida/QuickJS=20=E6=A0=87=E8=AF=86?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+定制内容（24 处替换，13 个文件）：
+
+1. 运行时脚本路径：/frida/ → /ckb/（gumcmodule.c, 5处）
+2. QuickJS 运行时：frida/runtime → ckb/runtime，worker 脚本路径
+   错误消息去 QuickJS 关键词（gumquickcompile.c, gumquickscript.c,
+   gumquickscriptbackend.c）
+3. JS 全局对象名："Frida" → "CKB"（gumquickcore.c, gumv8core.cpp）
+4. V8 运行时：/frida/runtime/ → /ckb/runtime/，编译标志重命名
+   （gumv8script.cpp, gumv8scriptbackend.cpp）
+5. Inspector Server："Frida Agent" → "CKB Agent"（guminspectorserver.c）
+6. ARM64 内存段标记：__FRIDA_DATA → __CKB_DATA
+   （guminterceptor-arm64.c）
+7. Darwin only：__FRIDA_ → __CKB_，frida-XXXXXX.dylib → ckb-XXXXXX.dylib
+   （gumdarwingrafter.c, gumcodesegment-darwin.c, gumdarwinmapper.c）
+
+效果：编译后的 libgumjs.so .rodata 段不再包含 /frida/runtime/ 路径
+和 "Frida" JS 全局对象名，配合 .so 二进制补丁（patch_so.py）和
+CkbSmartN 源码层清除，茅台（梆梆加固）和 360 加固 app 均稳定运行不崩溃。
+
+定制日志：docs/工程项目总览/Frida-Gum定制日志.md
+---
+ bindings/gumjs/gumcmodule.c                | 10 +++++-----
+ bindings/gumjs/guminspectorserver.c        |  6 +++---
+ bindings/gumjs/gumquickcompile.c           |  2 +-
+ bindings/gumjs/gumquickcore.c              |  2 +-
+ bindings/gumjs/gumquickscript.c            |  2 +-
+ bindings/gumjs/gumquickscriptbackend.c     |  8 ++++----
+ bindings/gumjs/gumv8core.cpp               |  2 +-
+ bindings/gumjs/gumv8script.cpp             |  2 +-
+ bindings/gumjs/gumv8scriptbackend.cpp      |  2 +-
+ gum/backend-arm64/guminterceptor-arm64.c   |  2 +-
+ gum/backend-darwin/gumcodesegment-darwin.c |  2 +-
+ gum/backend-darwin/gumdarwinmapper.c       |  2 +-
+ gum/gumdarwingrafter.c                     |  6 +++---
+ 13 files changed, 24 insertions(+), 24 deletions(-)
+
+diff --git a/bindings/gumjs/gumcmodule.c b/bindings/gumjs/gumcmodule.c
+index 80dfd7ed..008811b2 100644
+--- a/bindings/gumjs/gumcmodule.c
++++ b/bindings/gumjs/gumcmodule.c
+@@ -479,8 +479,8 @@ gum_tcc_cmodule_new (const gchar * source,
+   tcc_set_options (state,
+       "-Wall "
+       "-Werror "
+-      "-isystem /frida "
+-      "-isystem /frida/capstone "
++      "-isystem /ckb "
++      "-isystem /ckb/capstone "
+       "-nostdinc "
+       "-nostdlib"
+   );
+@@ -674,7 +674,7 @@ gum_tcc_cmodule_load_header (void * opaque,
+   guint i;
+ 
+   name = path;
+-  if (g_str_has_prefix (name, "/frida/"))
++  if (g_str_has_prefix (name, "/ckb/"))
+     name += 7;
+ 
+   for (i = 0; i != G_N_ELEMENTS (gum_cmodule_headers); i++)
+@@ -1197,7 +1197,7 @@ gum_gcc_cmodule_call_objcopy (GumGccCModule * self,
+   const gchar * argv[] = {
+     "objcopy",
+     "-O", "binary",
+-    "--only-section=.frida",
++    "--only-section=.ckb",
+     "a.out",
+     "module",
+     NULL
+@@ -1251,7 +1251,7 @@ gum_write_linker_script (FILE * file,
+ 
+   fprintf (printer.file,
+       "SECTIONS {\n"
+-      "  .frida 0x%zx: {\n"
++      "  .ckb 0x%zx: {\n"
+       "    *(.text*)\n"
+       "    *(.data)\n"
+       "    *(.bss)\n"
+diff --git a/bindings/gumjs/guminspectorserver.c b/bindings/gumjs/guminspectorserver.c
+index 27fbc8a3..684517fe 100644
+--- a/bindings/gumjs/guminspectorserver.c
++++ b/bindings/gumjs/guminspectorserver.c
+@@ -316,13 +316,13 @@ gum_inspector_server_on_list (SoupServer * server,
+   json_builder_add_string_value (builder, self->title);
+ 
+   json_builder_set_member_name (builder, "description");
+-  json_builder_add_string_value (builder, "Frida Agent");
++  json_builder_add_string_value (builder, "CKB Agent");
+ 
+   json_builder_set_member_name (builder, "url");
+   json_builder_add_string_value (builder, "file://");
+ 
+   json_builder_set_member_name (builder, "faviconUrl");
+-  json_builder_add_string_value (builder, "https://frida.re/favicon.ico");
++  json_builder_add_string_value (builder, "https://ckb.local/favicon.ico");
+ 
+   json_builder_set_member_name (builder, "type");
+   json_builder_add_string_value (builder, "node");
+@@ -389,7 +389,7 @@ gum_inspector_server_on_version (SoupServer * server,
+   json_builder_begin_object (builder);
+ 
+   json_builder_set_member_name (builder, "Browser");
+-  json_builder_add_string_value (builder, "Frida/v" FRIDA_VERSION);
++  json_builder_add_string_value (builder, "CKB/v" FRIDA_VERSION);
+ 
+   json_builder_set_member_name (builder, "Protocol-Version");
+   json_builder_add_string_value (builder, "1.1");
+diff --git a/bindings/gumjs/gumquickcompile.c b/bindings/gumjs/gumquickcompile.c
+index eda92509..97c0355e 100644
+--- a/bindings/gumjs/gumquickcompile.c
++++ b/bindings/gumjs/gumquickcompile.c
+@@ -170,7 +170,7 @@ gum_es_name_from_filesystem_path (const char * path)
+ 
+   parts = g_strsplit (path, dir_sep, 0);
+   g_free (parts[0]);
+-  parts[0] = g_strdup ("frida/runtime");
++  parts[0] = g_strdup ("ckb/runtime");
+ 
+   rel_name = g_strjoinv ("/", parts);
+   name = g_strconcat ("/", rel_name, NULL);
+diff --git a/bindings/gumjs/gumquickcore.c b/bindings/gumjs/gumquickcore.c
+index 159f8890..80471252 100644
+--- a/bindings/gumjs/gumquickcore.c
++++ b/bindings/gumjs/gumquickcore.c
+@@ -1540,7 +1540,7 @@ _gum_quick_core_init (GumQuickCore * self,
+   obj = JS_NewObject (ctx);
+   JS_SetPropertyFunctionList (ctx, obj, gumjs_frida_entries,
+       G_N_ELEMENTS (gumjs_frida_entries));
+-  JS_DefinePropertyValueStr (ctx, ns, "Frida", obj, JS_PROP_C_W_E);
++  JS_DefinePropertyValueStr (ctx, ns, "CKB", obj, JS_PROP_C_W_E);
+ 
+   obj = JS_NewObject (ctx);
+   JS_SetPropertyFunctionList (ctx, obj, gumjs_script_entries,
+diff --git a/bindings/gumjs/gumquickscript.c b/bindings/gumjs/gumquickscript.c
+index 2049e341..24d44f8e 100644
+--- a/bindings/gumjs/gumquickscript.c
++++ b/bindings/gumjs/gumquickscript.c
+@@ -1439,7 +1439,7 @@ gum_quick_worker_on_runtime_loaded (JSValue error,
+         self->asset->name);
+ 
+     val = JS_Eval (ctx, init_code, strlen (init_code),
+-        "/_frida_worker_runtime.js",
++        "/_ckb_worker_runtime.js",
+         JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT);
+     if (!JS_IsException (val))
+       self->state = GUM_WORKER_RUNNING;
+diff --git a/bindings/gumjs/gumquickscriptbackend.c b/bindings/gumjs/gumquickscriptbackend.c
+index 649537ac..e80e50b1 100644
+--- a/bindings/gumjs/gumquickscriptbackend.c
++++ b/bindings/gumjs/gumquickscriptbackend.c
+@@ -782,7 +782,7 @@ gum_create_script_task_run (GumScriptTask * task,
+   {
+     gum_script_task_return_error (task,
+         g_error_new (GUM_ERROR, GUM_ERROR_NOT_SUPPORTED,
+-          "snapshots are not supported by the QuickJS runtime"));
++          "snapshots are not supported by the runtime"));
+     return;
+   }
+ 
+@@ -898,7 +898,7 @@ gum_create_script_from_bytes_task_run (GumScriptTask * task,
+   {
+     gum_script_task_return_error (task,
+         g_error_new (GUM_ERROR, GUM_ERROR_NOT_SUPPORTED,
+-          "snapshots are not supported by the QuickJS runtime"));
++          "snapshots are not supported by the runtime"));
+     return;
+   }
+ 
+@@ -1143,7 +1143,7 @@ gum_snapshot_script_task_run (GumScriptTask * task,
+ {
+   gum_script_task_return_error (task,
+       g_error_new (GUM_ERROR, GUM_ERROR_NOT_SUPPORTED,
+-        "not supported by the QuickJS runtime"));
++        "not supported by the runtime"));
+ }
+ 
+ static void
+@@ -1217,7 +1217,7 @@ gum_es_program_new (void)
+     gchar * name;
+     GumESAsset * asset;
+ 
+-    name = g_strconcat ("/frida/runtime/", cur->name, NULL);
++    name = g_strconcat ("/ckb/runtime/", cur->name, NULL);
+     asset = gum_es_asset_new (name, cur->bytecode, cur->bytecode_size, NULL);
+ 
+     if (program->runtime == NULL)
+diff --git a/bindings/gumjs/gumv8core.cpp b/bindings/gumjs/gumv8core.cpp
+index b96e3327..60ee9f60 100644
+--- a/bindings/gumjs/gumv8core.cpp
++++ b/bindings/gumjs/gumv8core.cpp
+@@ -654,7 +654,7 @@ _gum_v8_core_init (GumV8Core * self,
+       );
+   scope->SetHandler (global_access);
+ 
+-  auto frida = _gum_v8_create_module ("Frida", scope, isolate);
++  auto frida = _gum_v8_create_module ("CKB", scope, isolate);
+   _gum_v8_module_add (module, frida, gumjs_frida_values, isolate);
+   frida->Set (_gum_v8_string_new_ascii (isolate, "version"),
+       _gum_v8_string_new_ascii (isolate, FRIDA_VERSION), ReadOnly);
+diff --git a/bindings/gumjs/gumv8script.cpp b/bindings/gumjs/gumv8script.cpp
+index 59ba0663..88c03854 100644
+--- a/bindings/gumjs/gumv8script.cpp
++++ b/bindings/gumjs/gumv8script.cpp
+@@ -2062,7 +2062,7 @@ gum_es_program_new (void)
+ 
+   for (auto cur = gumjs_runtime_modules; cur->name != NULL; cur++)
+   {
+-    auto name = g_strconcat ("/frida/runtime/", cur->name,
++    auto name = g_strconcat ("/ckb/runtime/", cur->name,
+         (const gchar *) NULL);
+     auto asset = gum_es_asset_new (name, cur->source_code,
+         strlen (cur->source_code), NULL);
+diff --git a/bindings/gumjs/gumv8scriptbackend.cpp b/bindings/gumjs/gumv8scriptbackend.cpp
+index f3d0fdd3..42b5d588 100644
+--- a/bindings/gumjs/gumv8scriptbackend.cpp
++++ b/bindings/gumjs/gumv8scriptbackend.cpp
+@@ -241,7 +241,7 @@ gum_v8_script_backend_get_platform (GumV8ScriptBackend * self)
+       g_string_append (flags, " --jitless");
+     }
+ 
+-    const gchar * extra_flags = g_getenv ("FRIDA_V8_EXTRA_FLAGS");
++    const gchar * extra_flags = g_getenv ("CKB_V8_EXTRA_FLAGS");
+     if (extra_flags != NULL)
+     {
+       g_string_append_c (flags, ' ');
+diff --git a/gum/backend-arm64/guminterceptor-arm64.c b/gum/backend-arm64/guminterceptor-arm64.c
+index 224adc65..682676ed 100644
+--- a/gum/backend-arm64/guminterceptor-arm64.c
++++ b/gum/backend-arm64/guminterceptor-arm64.c
+@@ -546,7 +546,7 @@ gum_enumerate_grafted_segment_pairs (gconstpointer mach_header,
+       {
+         slide = (guint8 *) mach_header - (guint8 *) sc->vmaddr;
+       }
+-      else if (g_str_has_prefix (sc->segname, "__FRIDA_DATA"))
++      else if (g_str_has_prefix (sc->segname, "__CKB_DATA"))
+       {
+         GumGraftedHeader * header = GSIZE_TO_POINTER (sc->vmaddr + slide);
+ 
+diff --git a/gum/backend-darwin/gumcodesegment-darwin.c b/gum/backend-darwin/gumcodesegment-darwin.c
+index ad574ff0..97d2c8a7 100644
+--- a/gum/backend-darwin/gumcodesegment-darwin.c
++++ b/gum/backend-darwin/gumcodesegment-darwin.c
+@@ -404,7 +404,7 @@ gum_code_segment_try_realize (GumCodeSegment * self)
+   gint res;
+   fsignatures_t sigs;
+ 
+-  self->fd = gum_file_open_tmp ("frida-XXXXXX.dylib", &dylib_path);
++  self->fd = gum_file_open_tmp ("ckb-XXXXXX.dylib", &dylib_path);
+   if (self->fd == -1)
+     return FALSE;
+ 
+diff --git a/gum/backend-darwin/gumdarwinmapper.c b/gum/backend-darwin/gumdarwinmapper.c
+index 808ce526..aee586c8 100644
+--- a/gum/backend-darwin/gumdarwinmapper.c
++++ b/gum/backend-darwin/gumdarwinmapper.c
+@@ -1028,7 +1028,7 @@ gum_darwin_mapper_alloc_and_emit_runtime (GumDarwinMapper * self,
+ 
+   strv_offsets[0] = 0;
+   g_string_append_printf (strv_blob,
+-      "frida_dylib_range=0x%" G_GINT64_MODIFIER "x,0x%" G_GSIZE_MODIFIER "x",
++      "ckb_dylib_range=0x%" G_GINT64_MODIFIER "x,0x%" G_GSIZE_MODIFIER "x",
+       base_address, size);
+ 
+   for (i = 0; i != params->len; i++)
+diff --git a/gum/gumdarwingrafter.c b/gum/gumdarwingrafter.c
+index 136b342b..f5efaec1 100644
+--- a/gum/gumdarwingrafter.c
++++ b/gum/gumdarwingrafter.c
+@@ -300,7 +300,7 @@ gum_darwin_grafter_graft (GumDarwinGrafter * self,
+     const GumDarwinSegment * segment =
+         &g_array_index (module->segments, GumDarwinSegment, i);
+ 
+-    if (g_str_has_prefix (segment->name, "__FRIDA_"))
++    if (g_str_has_prefix (segment->name, "__CKB_"))
+       goto already_grafted;
+   }
+ 
+@@ -1012,7 +1012,7 @@ gum_darwin_grafter_transform_load_commands (gconstpointer commands_in,
+ 
+         seg.cmd = GUM_LC_SEGMENT_64;
+         seg.cmdsize = sizeof (seg) + sizeof (sect);
+-        g_snprintf (seg.segname, sizeof (seg.segname), "__FRIDA_TEXT%u", j);
++        g_snprintf (seg.segname, sizeof (seg.segname), "__CKB_TEXT%u", j);
+         seg.vmaddr = descriptor->code_address;
+         seg.vmsize = descriptor->code_size;
+         seg.fileoff = descriptor->code_offset;
+@@ -1042,7 +1042,7 @@ gum_darwin_grafter_transform_load_commands (gconstpointer commands_in,
+ 
+         seg.cmd = GUM_LC_SEGMENT_64;
+         seg.cmdsize = sizeof (seg) + sizeof (sect);
+-        g_snprintf (seg.segname, sizeof (seg.segname), "__FRIDA_DATA%u", j);
++        g_snprintf (seg.segname, sizeof (seg.segname), "__CKB_DATA%u", j);
+         seg.vmaddr = descriptor->data_address;
+         seg.vmsize = descriptor->data_size;
+         seg.fileoff = descriptor->data_offset;
+-- 
+2.45.1.windows.1
+
